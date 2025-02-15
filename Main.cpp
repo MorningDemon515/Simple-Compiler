@@ -9,6 +9,7 @@
 #include <cstring>
 #include <stdexcept>
 #include <map>
+#include <unordered_map>
 
 enum TokenType{
     TOKEN_IDENTIFIER,
@@ -20,6 +21,11 @@ enum TokenType{
     TOKEN_LPAREN,//左括号
     TOKEN_RPAREN,//右括号
     TOKEN_EQUAL,//等号
+    TOKEN_SEMI,//分号
+
+    TOKEN_IF,
+    TOKEN_ELSE,
+
     TOKEN_EOF,
     TOKEN_INVALID
 };
@@ -33,7 +39,13 @@ struct Token
 class Lexer
 {
 public:
-    Lexer(const char* input) : input(input), pos(0) {}
+    Lexer(const char* input) : input(input), pos(0) {
+        keywords = {
+            {"if", TOKEN_IF},
+            {"else", TOKEN_ELSE}
+            // 可扩展其他关键字
+        };
+    }
 
     Token getNextToken()
     {
@@ -103,22 +115,36 @@ public:
             return { TOKEN_EQUAL, "=" };
         }
 
+        if (currentChar == ';')
+        {
+            ++pos;
+            return {TOKEN_SEMI, ";"};
+        }
+
         return {TOKEN_INVALID, ""};
     }
 
 private:
     const char* input;
     size_t pos;
+    std::unordered_map<std::string, TokenType> keywords; // 新增：关键字表
 
-    //识别标识符
-    Token T_identifier()
-    {
+    // 识别标识符（修改后）
+    Token T_identifier() {
         size_t startPos = pos;
-        while (pos < strlen(input) && (std::isalnum(input[pos]) || input[pos] == '_'))
-        {
+        while (pos < strlen(input) && (std::isalnum(input[pos]) || input[pos] == '_')) {
             ++pos;
         }
-        return {TOKEN_IDENTIFIER, std::string(input + startPos, pos - startPos)};
+        std::string identifier = std::string(input + startPos, pos - startPos);
+
+        // 检查是否为关键字
+        auto it = keywords.find(identifier);
+        if (it != keywords.end()) {
+            return { it->second, identifier }; // 返回关键字 Token
+        }
+        else {
+            return { TOKEN_IDENTIFIER, identifier }; // 普通标识符
+        }
     }
 
     //识别数字
@@ -129,6 +155,7 @@ private:
         {
             ++pos;
         }
+
         return {TOKEN_NUMBER, std::string(input + startPos,pos-startPos)};
     }
 };
@@ -184,6 +211,8 @@ public:
         eat(TOKEN_EQUAL);  // 期待 '=' 符号
 
         double result = expression(); // 解析右边的表达式
+
+        eat(TOKEN_SEMI);
 
         symbolTable[varName] = result; // 存储结果到符号表中
 
@@ -285,22 +314,18 @@ int main(int argc, char* args[]) {
 
     const char* input = vsscode.c_str();
     Lexer lexer(input);
-   // Token token = lexer.getNextToken();
+    Token token = lexer.getNextToken();
     Parser parser(lexer);
 
-   // while (token.type != TOKEN_EOF)
-    //{
-      //  std::cout << "Token: " << token.type << " Value: " << token.value << std::endl;
-        //token = lexer.getNextToken();
-    //}
+    while (token.type != TOKEN_EOF)
+    {
+        std::cout << "Token: " << token.type << " Value: " << token.value << std::endl;
+       token = lexer.getNextToken();
+    }
 
+    /*
     try {
         parser.parse();
-        // 打印一下符号表，查看变量的值
-        //std::cout << "Symbol Table:" << std::endl;
-        //for (const auto& entry : parser.symbolTable) {
-          //  std::cout << entry.first << " = " << entry.second << std::endl;
-        //}
 
         std::string map_key = args[2];
         auto it = parser.symbolTable.find(map_key);
@@ -313,7 +338,7 @@ int main(int argc, char* args[]) {
     }
     catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
-    }
+    }*/
 
     system("pause");
     return 0;
