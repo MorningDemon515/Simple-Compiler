@@ -1,137 +1,267 @@
+#include <stdio.h>
+#include <stdlib.h>
 #include <iostream>
 #include <fstream>
 #include <sstream>
 #include <string>
 #include <vector>
 #include <cctype>
+#include <cstring>
+#include <stdexcept>
+#include <map>
 
-enum TokenType {
-    TOK_EOF,//结束符
-    TOK_NUMBER,//数字
-    TOK_PLUS,//加号
-    TOK_MINUS,//减号
-    TOK_MUL,//乘号
-    TOK_DIV,//除号
-    TOK_LPAREN,//左括号
-    TOK_RPAREN//右括号
+enum TokenType{
+    TOKEN_IDENTIFIER,
+    TOKEN_NUMBER,
+    TOKEN_PLUS,
+    TOKEN_MINUS,
+    TOKEN_STAR,// 乘号
+    TOKEN_SLASH,// 除号
+    TOKEN_LPAREN,//左括号
+    TOKEN_RPAREN,//右括号
+    TOKEN_EQUAL,//等号
+    TOKEN_EOF,
+    TOKEN_INVALID
 };
 
-struct Token {
+struct Token
+{
     TokenType type;
     std::string value;
+};
 
-    Token(TokenType t = TOK_EOF, std::string v = "")
-        : type(t), value(v) {
+class Lexer
+{
+public:
+    Lexer(const char* input) : input(input), pos(0) {}
+
+    Token getNextToken()
+    {
+        //跳过空白字符和文件结束
+        while (pos < strlen(input) && std::isspace(input[pos])){
+            ++pos;
+        }
+
+        if (pos >= strlen(input)) {
+            return { TOKEN_EOF, "" };
+        }
+
+        //标识符和数字
+        char currentChar = input[pos];
+
+        if (std::isalpha(currentChar) || currentChar == '_')
+        {
+            return T_identifier();
+        }
+
+        if (std::isdigit(currentChar))
+        {
+            return T_number();
+        }
+
+        //操作符
+
+        if (currentChar == '+')
+        {
+            ++pos;
+            return {TOKEN_PLUS, "+"};
+        }
+        
+        if (currentChar == '-')
+        {
+            ++pos;
+            return { TOKEN_MINUS, "-" };
+        }
+
+        if (currentChar == '*')
+        {
+            ++pos;
+            return { TOKEN_STAR, "*" };
+        }
+
+        if (currentChar == '/')
+        {
+            ++pos;
+            return { TOKEN_SLASH, "/" };
+        }
+
+        if (currentChar == '(')
+        {
+            ++pos;
+            return { TOKEN_LPAREN, "(" };
+        }
+
+        if (currentChar == ')')
+        {
+            ++pos;
+            return { TOKEN_RPAREN, ")" };
+        }
+
+        if (currentChar == '=')
+        {
+            ++pos;
+            return { TOKEN_EQUAL, "=" };
+        }
+
+        return {TOKEN_INVALID, ""};
+    }
+
+private:
+    const char* input;
+    size_t pos;
+
+    //识别标识符
+    Token T_identifier()
+    {
+        size_t startPos = pos;
+        while (pos < strlen(input) && (std::isalnum(input[pos]) || input[pos] == '_'))
+        {
+            ++pos;
+        }
+        return {TOKEN_IDENTIFIER, std::string(input + startPos, pos - startPos)};
+    }
+
+    //识别数字
+    Token T_number()
+    {
+        size_t startPos = pos;
+        while (pos < strlen(input) && std::isdigit(input[pos]))
+        {
+            ++pos;
+        }
+        return {TOKEN_NUMBER, std::string(input + startPos,pos-startPos)};
     }
 };
 
-class Tokenizer {
-    std::string input;
-    size_t position;
+class Parser
+{
 public:
-    Tokenizer(const std::string& str) : input(str), position(0) {}
+    Parser(Lexer& lexer) : lexer(lexer), currentToken(lexer.getNextToken()) {}
 
-    Token nextToken() {
-        while (position < input.size() && isspace(input[position])) {
-            ++position;
-        }//跳过空白字符
-
-        if (position >= input.size()) return Token(TOK_EOF);//已经到达字符串末尾
-
-        char c = input[position++];
-        if (isdigit(c)) {
-            std::string num(1, c);
-            while (position < input.size() && isdigit(input[position])) {
-                num += input[position++];
-            }//读取数字
-            return Token(TOK_NUMBER, num);
-        }//数字
-
-        switch (c) {
-        case '+': return Token(TOK_PLUS);
-        case '-': return Token(TOK_MINUS);
-        case '*': return Token(TOK_MUL);
-        case '/': return Token(TOK_DIV);
-        case '(': return Token(TOK_LPAREN);
-        case ')': return Token(TOK_RPAREN);
-        default: throw std::runtime_error("Unexpected character");
+    // 解析并计算表达式
+    void parse()
+    {
+        while (currentToken.type != TOKEN_EOF) {
+            statement();
         }
     }
-};
 
-class Parser {
-    Tokenizer& tokenizer;
+    Lexer& lexer;
     Token currentToken;
+    std::map<std::string, double> symbolTable; // 用于存储标识符和它们的值
 
-    void eat(TokenType type) {
+    // 读取下一个token
+    void eat(TokenType type)
+    {
         if (currentToken.type == type) {
-            currentToken = tokenizer.nextToken();
+            currentToken = lexer.getNextToken();
         }
         else {
-            throw std::runtime_error("Syntax error");
+            throw std::runtime_error("Syntax error: unexpected token");
         }
-    }//检查当前token是否为指定类型，是则读取下一个token，否则抛出异常
-
-public:
-    Parser(Tokenizer& t) : tokenizer(t) {
-        currentToken = tokenizer.nextToken();
     }
 
-    // 解析表达式（处理加减）
-    double parseExpr() {
-        double result = parseTerm();
+    // 解析一个语句（赋值或表达式）
+    void statement()
+    {
+        if (currentToken.type == TOKEN_IDENTIFIER)
+        {
+            assignment();
+        }
+        else
+        {
+            double result = expression();
+            std::cout << "Result: " << result << std::endl;
+        }
+    }
 
-        while (currentToken.type == TOK_PLUS || currentToken.type == TOK_MINUS) {
-            Token op = currentToken;
-            eat(currentToken.type);
+    // 解析赋值语句：identifier = expression
+    void assignment()
+    {
+        std::string varName = currentToken.value; // 获取标识符的名字
+        eat(TOKEN_IDENTIFIER);  // 吃掉标识符
 
-            double right = parseTerm();
-            if (op.type == TOK_PLUS) {
-                result += right;
+        eat(TOKEN_EQUAL);  // 期待 '=' 符号
+
+        double result = expression(); // 解析右边的表达式
+
+        symbolTable[varName] = result; // 存储结果到符号表中
+
+        std::cout << "Assigned " << result << " to " << varName << std::endl;
+    }
+
+    // 解析表达式
+    double expression()
+    {
+        double result = term();
+
+        while (currentToken.type == TOKEN_PLUS || currentToken.type == TOKEN_MINUS)
+        {
+            if (currentToken.type == TOKEN_PLUS) {
+                eat(TOKEN_PLUS);
+                result += term();
             }
-            else {
-                result -= right;
+            else if (currentToken.type == TOKEN_MINUS) {
+                eat(TOKEN_MINUS);
+                result -= term();
             }
         }
+
         return result;
     }
 
-    // 解析项（处理乘除）
-    double parseTerm() {
-        double result = parseFactor();
+    // 解析项
+    double term()
+    {
+        double result = factor();
 
-        while (currentToken.type == TOK_MUL || currentToken.type == TOK_DIV) {
-            Token op = currentToken;
-            eat(currentToken.type);
-
-            double right = parseFactor();
-            if (op.type == TOK_MUL) {
-                result *= right;
+        while (currentToken.type == TOKEN_STAR || currentToken.type == TOKEN_SLASH)
+        {
+            if (currentToken.type == TOKEN_STAR) {
+                eat(TOKEN_STAR);
+                result *= factor();
             }
-            else {
-                if (right == 0) throw std::runtime_error("Division by zero");
-                result /= right;
+            else if (currentToken.type == TOKEN_SLASH) {
+                eat(TOKEN_SLASH);
+                result /= factor();
             }
         }
+
         return result;
     }
 
-    // 解析因子（数字或括号表达式）
-    double parseFactor() {
-        Token token = currentToken;
-
-        if (token.type == TOK_NUMBER) {
-            eat(TOK_NUMBER);
-            return std::stod(token.value);
-        }
-        else if (token.type == TOK_LPAREN) {
-            eat(TOK_LPAREN);
-            double result = parseExpr();
-            eat(TOK_RPAREN);
+    // 解析因子
+    double factor()
+    {
+        if (currentToken.type == TOKEN_NUMBER)
+        {
+            double result = std::stod(currentToken.value);
+            eat(TOKEN_NUMBER);
             return result;
         }
-        else {
-            throw std::runtime_error("Unexpected token");
+        else if(currentToken.type == TOKEN_IDENTIFIER){
+            // 如果是标识符，查找其值
+            std::string varName = currentToken.value;
+            eat(TOKEN_IDENTIFIER);
+            if (symbolTable.find(varName) != symbolTable.end())
+            {
+                return symbolTable[varName]; // 返回该标识符的值
+            }
+            else
+            {
+                throw std::runtime_error("Undefined variable: " + varName);
+            }
+        }
+        else if (currentToken.type == TOKEN_LPAREN)
+        {
+            eat(TOKEN_LPAREN);
+            double result = expression();
+            eat(TOKEN_RPAREN);
+            return result;
+        }
+        else
+        {
+            throw std::runtime_error("Syntax error: expected number or '('");
         }
     }
 };
@@ -154,11 +284,32 @@ int main(int argc, char* args[]) {
     std::string vsscode = vssstream.str();
 
     const char* input = vsscode.c_str();
+    Lexer lexer(input);
+   // Token token = lexer.getNextToken();
+    Parser parser(lexer);
+
+   // while (token.type != TOKEN_EOF)
+    //{
+      //  std::cout << "Token: " << token.type << " Value: " << token.value << std::endl;
+        //token = lexer.getNextToken();
+    //}
+
     try {
-        Tokenizer tokenizer(input);
-        Parser parser(tokenizer);
-        double result = parser.parseExpr();
-        std::cout << "Result: " << result << std::endl;  
+        parser.parse();
+        // 打印一下符号表，查看变量的值
+        //std::cout << "Symbol Table:" << std::endl;
+        //for (const auto& entry : parser.symbolTable) {
+          //  std::cout << entry.first << " = " << entry.second << std::endl;
+        //}
+
+        std::string map_key = args[2];
+        auto it = parser.symbolTable.find(map_key);
+        if (it != parser.symbolTable.end()) {
+            std::cout << "Key: " << it->first << ", Value: " << it->second << std::endl;
+        }
+        else {
+            std::cout << "Key not found." << std::endl;
+        }
     }
     catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
